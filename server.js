@@ -1,58 +1,71 @@
-const express = require('express');
-const sql = require('mssql');
-const bodyParser = require('body-parser');
-const cors = require('cors');
+const express = require("express");
+const cors = require("cors");
+const sql = require("mssql");
 
 const app = express();
-const port = process.env.PORT || 8080; // Use dynamic port assignment for Azure
+const port = process.env.PORT || 8080; // Use the PORT environment variable if set, otherwise default to 8080
 
-app.use(bodyParser.json());
-app.use(cors());
-
-// Database configuration (use your Azure SQL connection string here)
-const config = {
-  user: 'montero',
-  password: '40Thousand',
-  server: 'davilan.database.windows.net',
-  database: 'bundol',
+// Azure SQL connection configuration
+const dbConfig = {
+  user: "pauleen", // Azure SQL username
+  password: "Vote1234", // Azure SQL password
+  server: "votingsys.database.windows.net", // Azure SQL server name
+  database: "votingDB", // Your database name
   options: {
     encrypt: true, // Use encryption
-    trustServerCertificate: true, // Ignore SSL certificate validation for simplicity
+    trustServerCertificate: true, // Bypass SSL certificate validation
   },
 };
 
-// Test database connection
-sql.connect(config)
-  .then(() => console.log('Database connected successfully'))
-  .catch((err) => {
-    console.error('Error connecting to database:', err.message);
-    process.exit(1); // Exit the process if the database connection fails
-  });
+// Middleware
+app.use(cors());
+app.use(express.json());
 
 // Health check endpoint
-app.get('/', (req, res) => {
-  res.send('App is running and healthy.');
+app.get("/", (req, res) => {
+  res.send("App is running and healthy.");
 });
 
-// Route to save enrollment data
-app.post('/enroll', async (req, res) => {
-  const { name, date_of_birth, course, email, phone_number } = req.body;
+// Route to get all votes
+app.get("/votes", async (req, res) => {
+  try {
+    const pool = await sql.connect(dbConfig); // Connect to Azure SQL
+    const result = await pool.request().query("SELECT * FROM Votes ORDER BY id DESC");
+    res.json(result.recordset); // Return the query results
+  } catch (err) {
+    console.error("Error querying the database:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Route to create a new vote record
+app.post("/votes", async (req, res) => {
+  const { name, preferredLanguage } = req.body;
+
+  // Validate input
+  if (!name || !preferredLanguage) {
+    return res.status(400).json({ message: "Name and preferred language are required." });
+  }
 
   try {
-    await sql.connect(config);
-    await sql.query`
-      INSERT INTO enrollments (name, date_of_birth, course, email, phone_number)
-      VALUES (${name}, ${date_of_birth}, ${course}, ${email}, ${phone_number})
-    `;
+    const pool = await sql.connect(dbConfig); // Connect to Azure SQL
+    await pool
+      .request()
+      .input("name", sql.NVarChar, name)
+      .input("preferredLanguage", sql.NVarChar, preferredLanguage)
+      .query("INSERT INTO Votes (name, preferredLanguage) VALUES (@name, @preferredLanguage)");
 
-    res.status(201).json({ msg: 'Enrollment data saved successfully' });
+    res.status(201).json({
+      message: "Vote successfully recorded",
+      data: { name, preferredLanguage },
+    });
   } catch (err) {
-    console.error('Error saving enrollment data:', err.message);
-    res.status(500).json({ msg: 'Failed to save enrollment data' });
+    console.error("Error inserting into the database:", err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
 // Start the server
 app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
+  console.log(`Server is running on http://localhost:${port}`);
 });
